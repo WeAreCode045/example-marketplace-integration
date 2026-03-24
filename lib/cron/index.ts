@@ -8,7 +8,7 @@ export function cronJob(
       const authHeader = req.headers.get("authorization");
       if (
         !authHeader ||
-        authHeader.replace("Bearer ", "").trim() !== env.CRON_SECRET
+        authHeader.replace("Bearer ", "").trim() !== (env.CRON_SECRET || "NONE")
       ) {
         return new Response("Unauthorized", { status: 401 });
       }
