@@ -1,6 +1,7 @@
 import { getInstallation } from "@/lib/partner";
 import { getAccountInfo } from "@/lib/vercel/marketplace-api";
-import { getSession } from "./auth";
+import { redirect } from "next/navigation";
+import { getSessionOrNull } from "./auth";
 import { Nav } from "./nav";
 
 export default async function DashboardLayout({
@@ -8,7 +9,10 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await getSession();
+  const session = await getSessionOrNull();
+  if (!session) {
+    redirect(`/sign-in?returnTo=${encodeURIComponent("/dashboard")}`);
+  }
   const account = await getAccountInfo(session.installation_id);
   const installation = await getInstallation(session.installation_id);
 

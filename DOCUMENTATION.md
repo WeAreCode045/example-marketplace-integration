@@ -26,6 +26,10 @@ This repository implements the **Vercel Marketplace Partner API** for a bring-yo
 | `VERCEL_INTEGRATION_SLUG` | Optional; **URL slug** from Integrations Console — enables **Install on Vercel** on the deployed home page at `/` (`https://vercel.com/integrations/{slug}/new`) |
 | `CRON_SECRET` | Optional; for billing cron routes |
 
+## Provider dashboard (`/dashboard`)
+
+The dashboard expects a Marketplace **SSO `id-token` cookie** set when Vercel redirects the user to **`/callback`** after sign-in. If you open `/dashboard` directly, you are redirected to **`/sign-in`**, which explains how to enter via Vercel (**Open in provider**). The cookie is set with `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` in production.
+
 ## Installer identity (`user_email` and fallback)
 
 Provisioning uses the Marketplace **user JWT**. If Vercel enables the optional **`user_email`** claim for your integration, email resolution is reliable. Otherwise the server calls Vercel’s **`GET /v1/installations/{installationId}/member/{user_id}`** using the installation access token stored at install time.
