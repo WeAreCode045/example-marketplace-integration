@@ -5,7 +5,12 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "My Dashboard",
+  title: {
+    default: "Appwrite for Vercel",
+    template: "%s · Appwrite for Vercel",
+  },
+  description:
+    "Vercel Marketplace integration connecting Appwrite to your projects.",
 };
 
 export default function RootLayout({

@@ -10,6 +10,11 @@ const envSchema = z.object({
   APPWRITE_PRODUCT_ID: z.string().min(1).optional(),
   /** Appwrite user label applied to the installing Vercel user (default: admin). */
   APPWRITE_ADMIN_LABEL: z.string().min(1).optional(),
+  /**
+   * URL slug from Integrations Console (not the oac_ id). Used for the “Install on Vercel” link on the home page.
+   * @see https://vercel.com/integrations/{slug}/new
+   */
+  VERCEL_INTEGRATION_SLUG: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

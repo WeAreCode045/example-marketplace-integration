@@ -2,11 +2,13 @@
 
 This repository implements the **Vercel Marketplace Partner API** for a bring-your-own-key (BYOK) Appwrite connection. When a customer creates a resource, Vercel sends your server the Appwrite endpoint, project ID, database ID, and API key; your server validates them, ensures an **Appwrite Auth user** exists for the installing Vercel user with an **`admin` label**, and returns **secrets** that become environment variables on the connected Vercel project.
 
+**Deployed integration server (production):** `https://vercel-appwrite.vercel.app` (no trailing slash on **Base URL** in the console).
+
 ## Vercel Integrations Console (manual steps)
 
 1. Create a **native** integration and a **product** with product slug **`appwrite`** (or set `APPWRITE_PRODUCT_ID` on this server to match your slug).
-2. Set **Base URL** to this deployment’s origin (no trailing path).
-3. Set **Redirect Login URL** to `{origin}/callback` (see `app/callback/route.ts`).
+2. Set **Base URL** to `https://vercel-appwrite.vercel.app` (or your deployment’s origin; no trailing path).
+3. Set **Redirect Login URL** to `https://vercel-appwrite.vercel.app/callback` (see `app/callback/route.ts`). After SSO, users are redirected to **`/callback/complete`** for a short confirmation page, then they can open the dashboard.
 4. Add **Webhook URL** if you use installation webhooks (`app/webhook/route.ts`).
 5. In the product, set **Metadata schema** to the JSON in [`public/appwrite-metadata-schema.json`](public/appwrite-metadata-schema.json) (or merge those `properties` / `required` into the full schema shape required by the console UI).
 6. Define a **billing plan** with id **`appwrite-byok`** (free / no payment method required). The Partner code only exposes this plan.
@@ -21,6 +23,7 @@ This repository implements the **Vercel Marketplace Partner API** for a bring-yo
 | `KV_REST_API_URL` / `KV_REST_API_TOKEN` | Upstash Redis (installation + resource state) |
 | `APPWRITE_PRODUCT_ID` | Optional; default `appwrite` — must match product slug |
 | `APPWRITE_ADMIN_LABEL` | Optional; default `admin` — Appwrite user label for installers |
+| `VERCEL_INTEGRATION_SLUG` | Optional; **URL slug** from Integrations Console — enables **Install on Vercel** on the deployed home page at `/` (`https://vercel.com/integrations/{slug}/new`) |
 | `CRON_SECRET` | Optional; for billing cron routes |
 
 ## Installer identity (`user_email` and fallback)

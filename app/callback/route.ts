@@ -1,61 +1,40 @@
+import { computeDashboardDestination } from "@/lib/callback-destination";
 import { exchangeCodeForToken } from "@/lib/vercel/marketplace-api";
-import { redirect } from "next/navigation";
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { createSession } from "../dashboard/auth";
 
 export async function GET(request: NextRequest) {
-  const host = getHost(request);
   const code = request.nextUrl.searchParams.get("code");
-  const state = request.nextUrl.searchParams.get("state");
 
   if (!code) {
-    return new Response("Missing code", {
-      status: 400,
-    });
+    return toComplete(request, { error: "missing_code" });
   }
 
-  const token = await exchangeCodeForToken(code, state);
+  const state = request.nextUrl.searchParams.get("state");
 
-  createSession(token);
-
-  const resourceId = request.nextUrl.searchParams.get("resource_id");
-  const projectId = request.nextUrl.searchParams.get("project_id");
-  const invoiceId = request.nextUrl.searchParams.get("invoice_id");
-  const checkId = request.nextUrl.searchParams.get("check_id");
-
-  if (invoiceId) {
-    return redirect(`/dashboard/invoices?id=${invoiceId}`);
+  try {
+    const token = await exchangeCodeForToken(code, state);
+    await createSession(token);
+  } catch {
+    return toComplete(request, { error: "sso_failed" });
   }
 
-  if (request.nextUrl.searchParams.get("support")) {
-    return redirect(
-      `/dashboard/support${resourceId ? `?resource_id=${resourceId}` : ""}`,
-    );
-  }
-
-  if (resourceId) {
-    if (projectId) {
-      if (checkId) {
-        return redirect(
-          `/dashboard/resources/${resourceId}/projects/${projectId}?checkId=${encodeURIComponent(checkId)}`,
-        );
-      }
-
-      return redirect(
-        `/dashboard/resources/${resourceId}/projects/${projectId}`,
-      );
-    }
-
-    return redirect(`/dashboard/resources/${resourceId}`);
-  }
-
-  redirect("/dashboard");
+  const nextPath = computeDashboardDestination(request.nextUrl.searchParams);
+  return toComplete(request, { next: nextPath });
 }
 
-function getHost(request: NextRequest): string {
-  return request.headers.get("x-forwarded-host")
-    ? `${request.headers.get("x-forwarded-proto")}://${request.headers.get(
-        "x-forwarded-host",
-      )}`
-    : request.nextUrl.host;
+function toComplete(
+  request: NextRequest,
+  query: { error: string } | { next: string },
+): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = "/callback/complete";
+  url.search = "";
+  if ("error" in query) {
+    url.searchParams.set("error", query.error);
+  } else {
+    url.searchParams.set("next", query.next);
+  }
+  return NextResponse.redirect(url);
 }
