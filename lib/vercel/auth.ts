@@ -18,6 +18,8 @@ export interface OidcClaims {
   user_id: string;
   user_role: string;
   user_name?: string;
+  /** Present when Vercel enables email claim for your integration (contact Vercel). */
+  user_email?: string;
   user_avatar_url?: string;
 }
 

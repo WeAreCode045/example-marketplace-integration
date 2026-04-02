@@ -1,3 +1,9 @@
+import {
+  appwriteSecretsFromMetadata,
+  parseAppwriteMetadata,
+} from "@/lib/appwrite/metadata";
+import { env } from "@/lib/env";
+import { getResource } from "@/lib/partner";
 import { readRequestBodyWithSchema } from "@/lib/utils";
 import { withAuth } from "@/lib/vercel/auth";
 import { updateSecrets } from "@/lib/vercel/marketplace-api";
@@ -6,6 +12,8 @@ import {
   type RequestSecretsRotationResponse,
 } from "@/lib/vercel/schemas";
 import { waitUntil } from "@vercel/functions";
+
+const APPWRITE_PRODUCT_ID = env.APPWRITE_PRODUCT_ID ?? "appwrite";
 
 interface Params {
   installationId: string;
@@ -39,17 +47,14 @@ export const POST = withAuth(
     const forceAsync = url.searchParams.get("async") === "1";
 
     if (forceSync && !forceAsync) {
-      // Sync: return new secrets immediately
-      const currentDate = new Date().toISOString();
+      const secrets = await secretsForRotation(
+        params.installationId,
+        params.resourceId,
+      );
       return Response.json(
         {
           sync: true,
-          secrets: [
-            {
-              name: "TOP_SECRET",
-              value: `updated for rotation (${currentDate})`,
-            },
-          ],
+          secrets,
           partial: false,
         } satisfies RequestSecretsRotationResponse,
         {
@@ -83,12 +88,28 @@ async function rotateSecretsAsync(installationId: string, resourceId: string) {
     resourceId,
   );
 
-  const currentDate = new Date().toISOString();
+  const secrets = await secretsForRotation(installationId, resourceId);
+  await updateSecrets(installationId, resourceId, secrets);
+}
 
-  await updateSecrets(installationId, resourceId, [
+async function secretsForRotation(
+  installationId: string,
+  resourceId: string,
+): Promise<{ name: string; value: string }[]> {
+  const resource = await getResource(installationId, resourceId);
+  if (resource?.productId === APPWRITE_PRODUCT_ID) {
+    const parsed = parseAppwriteMetadata(
+      resource.metadata as Record<string, unknown>,
+    );
+    if (parsed.success) {
+      return appwriteSecretsFromMetadata(parsed.data);
+    }
+  }
+  const currentDate = new Date().toISOString();
+  return [
     {
       name: "TOP_SECRET",
       value: `updated for rotation (${currentDate})`,
     },
-  ]);
+  ];
 }

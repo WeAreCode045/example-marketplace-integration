@@ -312,7 +312,7 @@ export async function submitInvoice(
           }))
         : [
             {
-              billingPlanId: "pro200",
+              billingPlanId: "appwrite-byok",
               name: "Lone item. Maybe final invoice?",
               price: "1.80",
               quantity: 1,

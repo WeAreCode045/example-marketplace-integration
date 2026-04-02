@@ -1,88 +1,17 @@
-# Example Marketplace Integration
+# Vercel Marketplace integration — Appwrite (BYOK)
 
-Welcome to the Example Marketplace Integration. This repository contains a reference implementation for a Vercel Marketplace Integration.
+Native Marketplace Partner server that connects a customer’s **Appwrite** project to Vercel: collect endpoint, project ID, database ID, and API key; inject **`APPWRITE_*`** environment variables; and create or label an **Appwrite Auth** user for the installing Vercel account with the **`admin`** label (configurable).
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fexample-marketplace-integration&env=INTEGRATION_CLIENT_ID,INTEGRATION_CLIENT_SECRET,CRON_SECRET&envDescription=Integration%20credentials%20from%20the%20Vercel%20Integrations%20Console&envLink=https%3A%2F%2Fvercel.com%2Fdocs%2Fintegrations%2Fcreate-integration)
+Forked from [vercel/example-marketplace-integration](https://github.com/vercel/example-marketplace-integration). See **[DOCUMENTATION.md](./DOCUMENTATION.md)** for Integrations Console setup, metadata schema, JWT `user_email` opt-in, Appwrite scopes, and product snippets.
 
-## Getting Started
+## Quick setup
 
-1. Clone the code to your machine.
+1. Deploy this app to Vercel and add **Upstash Redis** so `KV_REST_API_URL` and `KV_REST_API_TOKEN` are set (same as the upstream example).
+2. In the [Integrations Console](https://vercel.com/dashboard/integrations/console), create a **native** integration and set **Base URL** and **Redirect Login URL** (`/callback`).
+3. Create a product with slug **`appwrite`** (or set env **`APPWRITE_PRODUCT_ID`** to your slug).
+4. Paste the metadata schema from [`public/appwrite-metadata-schema.json`](./public/appwrite-metadata-schema.json) into the product’s metadata schema field (adjust to match the console’s expected wrapper if needed).
+5. Add a billing plan with id **`appwrite-byok`** (free, no payment method).
 
-```sh
-$ git clone git@github.com:vercel/example-marketplace-integration.git example-marketplace-integration
-Cloning into 'example-marketplace-integration'...
-remote: Enumerating objects: 318, done.
-remote: Counting objects: 100% (81/81), done.
-remote: Compressing objects: 100% (57/57), done.
-remote: Total 318 (delta 29), reused 53 (delta 15), pack-reused 237
-Receiving objects: 100% (318/318), 120.25 KiB | 552.00 KiB/s, done.
-Resolving deltas: 100% (120/120), done.
-```
+Required env vars: `INTEGRATION_CLIENT_ID`, `INTEGRATION_CLIENT_SECRET`, Redis KV variables. Optional: `APPWRITE_PRODUCT_ID`, `APPWRITE_ADMIN_LABEL`, `CRON_SECRET`.
 
-2. Deploy the example Marketplace integration to your Vercel team.
-
-```sh
-$ cd example-marketplace-integration
-$ vc link
-Vercel CLI 33.5.5
-? Set up “~/src/example-marketplace-integration”? [Y/n] y
-? Which scope should contain your project? My Team
-? Link to existing project? [y/N] n
-? What’s your project’s name? example-marketplace-integration
-? In which directory is your code located? ./
-Local settings detected in vercel.json:
-Auto-detected Project Settings (Next.js):
-- Build Command: next build
-- Development Command: next dev --port $PORT
-- Install Command: `yarn install`, `pnpm install`, `npm install`, or `bun install`
-- Output Directory: Next.js default
-? Want to modify these settings? [y/N] n
-✅  Linked to my-team-name/example-marketplace-integration (created .vercel)
-```
-
-3. Add your `INTEGRATION_CLIENT_ID` and `INTEGRATION_CLIENT_SECRET` to your Vercel project. You can find these values on your Integration in the [Integrations Console](https://vercel.com/dashboard/integrations/console). If you do not have an existing Vercel integration, [please create one](https://vercel.com/docs/integrations/create-integration#creating-an-integration).
-
-```sh
-$ vercel env add INTEGRATION_CLIENT_ID
-Vercel CLI 33.5.5
-? What’s the value of INTEGRATION_CLIENT_ID? my-client-id
-? Add INTEGRATION_CLIENT_ID to which Environments (select multiple)? Production, Preview, Development
-✅  Added Environment Variable INTEGRATION_CLIENT_ID to Project example-marketplace-integration [234ms]
-$ vercel env add INTEGRATION_CLIENT_SECRET
-Vercel CLI 33.5.5
-? What’s the value of INTEGRATION_CLIENT_SECRET? my-secret
-? Add INTEGRATION_CLIENT_SECRET to which Environments (select multiple)? Production, Preview, Development
-✅  Added Environment Variable INTEGRATION_CLIENT_SECRET to Project example-marketplace-integration [211ms]
-```
-
-4. Secure cron jobs with `CRON_SECRET`
-
-```sh
-$ vercel env add CRON_SECRET
-Vercel CLI 41.6.2
-? What’s the value of CRON_SECRET? my-cron-secret
-? Add CRON_SECRET to which Environments (select multiple)? Production, Preview,Development
-✅  Added Environment Variable CRON_SECRET to Project example-marketplace-integration [103ms]
-```
-
-See [Securing cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs) for more information.
-
-5. On your Vercel project, visit the Storage tab (Vercel Dashboard > (Your Project) > Storage tab) and create a new Upstash Redis database. You should be prompted to connect your new store to your project, if not, connect it manually. Once connected, you should see the `KV_URL`, `KV_REST_API_URL`, `KV_REST_API_TOKEN`, `KV_REST_API_READ_ONLY_TOKEN` environment variables in your project. This database is used to store state for your example marketplace integration.
-
-![](/docs/assets/storage-upstash-redis.png)
-
-6. Return to your Vercel Integration in the [Integrations Console](https://vercel.com/dashboard/integrations/console) and update the Marketplace Integration Settings (near the bottom of the page).
-
-- Set the "Base URL" to your deployed project's URL e.g. https://example-marketplace-integration.vercel.app
-- Set the "Redirect Login URL" to your deployed projects URL with the path `/callback` e.g. https://example-marketplace-integration.vercel.app/callback
-- Click the "Update" button at the bottom to save your changes.
-
-7. In the same Marketplace Integration Settings, create a product for your Vercel Integration using the "Create Product" button. A "product" maps to your own products you want to sell on Vercel. Depending on the product type (e.g. storage), the Vercel dashboard will understand how to interact with your product.
-
-- Fill out relevant metadata for your product like product name and logo.
-
-8. If you created a "storage" product type, you should be able to:
-
-- Create a database for your product in the Storage tab via the "Create Store" button.
-- View and manage your new database for your product.;
-- When you've created a database, you should be able to click the "Open in <Product Name>" button on the store detail page to open the database on your integration's dashboard.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone)

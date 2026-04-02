@@ -6,6 +6,10 @@ const envSchema = z.object({
   INTEGRATION_CLIENT_SECRET: z.string().min(1),
   CRON_SECRET: z.string().optional(),
   VERCEL_EXTERNAL_REDIRECT_URI: z.string().min(1).optional(),
+  /** Vercel product slug / id for the Appwrite BYOK product (default: appwrite). */
+  APPWRITE_PRODUCT_ID: z.string().min(1).optional(),
+  /** Appwrite user label applied to the installing Vercel user (default: admin). */
+  APPWRITE_ADMIN_LABEL: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

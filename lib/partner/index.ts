@@ -1,3 +1,14 @@
+import {
+  appwriteSecretsFromMetadata,
+  parseAppwriteMetadata,
+} from "@/lib/appwrite/metadata";
+import {
+  ensureAppwriteAdminUser,
+  formatAppwriteError,
+} from "@/lib/appwrite/sync-admin-user";
+import { resolveInstallerIdentity } from "@/lib/identity/resolve-installer";
+import type { OidcClaims } from "@/lib/vercel/auth";
+import { putInstallationResourceSecrets } from "@/lib/vercel/resource-secrets";
 import type {
   Balance,
   BillingPlan,
@@ -20,69 +31,60 @@ import type {
 } from "@/lib/vercel/schemas";
 import { compact } from "lodash";
 import { nanoid } from "nanoid";
+import { env } from "../env";
 import { kv } from "../redis";
 import {
   getInvoice,
   importResource as importResourceToVercelApi,
 } from "../vercel/marketplace-api";
 
+const APPWRITE_PRODUCT_ID = env.APPWRITE_PRODUCT_ID ?? "appwrite";
+const APPWRITE_ADMIN_LABEL = env.APPWRITE_ADMIN_LABEL ?? "admin";
+
+const IDEMPOTENCY_TTL_SEC = 60 * 60 * 24 * 7;
+
+export class ProvisionRejectedError extends Error {
+  readonly httpStatus: 400;
+  readonly payload: {
+    code: string;
+    message: string;
+    user?: { message: string };
+    fields?: { key: string; message: string }[];
+  };
+
+  constructor(
+    httpStatus: 400,
+    payload: {
+      code: string;
+      message: string;
+      user?: { message: string };
+      fields?: { key: string; message: string }[];
+    },
+  ) {
+    super(payload.message);
+    this.name = "ProvisionRejectedError";
+    this.httpStatus = httpStatus;
+    this.payload = payload;
+  }
+}
+
 const billingPlans: BillingPlan[] = [
   {
-    id: "default",
+    id: "appwrite-byok",
     scope: "resource",
-    name: "Hobby",
+    name: "Appwrite (BYOK)",
     cost: "Free",
-    description: "Use all you want up to 20G",
+    description:
+      "Connect your Appwrite project. Credentials are synced to your Vercel project as environment variables.",
     type: "subscription",
     paymentMethodRequired: false,
     details: [
-      { label: "Max storage size", value: "20G" },
-      { label: "Max queries per day", value: "100K" },
+      { label: "Billing", value: "Managed in Appwrite / your host" },
+      {
+        label: "Credentials",
+        value: "Stored as Vercel env vars when connected",
+      },
     ],
-    highlightedDetails: [
-      { label: "High availability", value: "Single zone" },
-      { label: "Dataset size", value: "100Mb" },
-    ],
-    maxResources: 3,
-    requiredPolicies: [
-      { id: "1", name: "Terms of Service", url: "https://partner/toc" },
-    ],
-    effectiveDate: "2021-01-01T00:00:00Z",
-  },
-  {
-    id: "pro200",
-    scope: "resource",
-    name: "Pro",
-    cost: "$10 every Gb",
-    type: "subscription",
-    description: "$10 every Gb",
-    paymentMethodRequired: true,
-    preauthorizationAmount: 5,
-    highlightedDetails: [
-      { label: "High availability", value: "Multi zone" },
-      { label: "Dataset size", value: "500Mb" },
-    ],
-    details: [
-      { label: "20G storage and 200K queries", value: "$25.00" },
-      { label: "Extra storage", value: "$10.00 per 10G" },
-      { label: "Unlimited daily Command Limit" },
-    ],
-    requiredPolicies: [
-      { id: "1", name: "Terms of Service", url: "https://partner/toc" },
-    ],
-    effectiveDate: "2021-01-01T00:00:00Z",
-  },
-  {
-    id: "prepay10",
-    scope: "resource",
-    name: "Prepay 10",
-    cost: "$10 for 1,000 tokens",
-    type: "prepayment",
-    description: "$10 for 1,000 tokens",
-    paymentMethodRequired: true,
-    minimumAmount: "10.00",
-    highlightedDetails: [{ label: "Token types", value: "input/output" }],
-    details: [{ label: "Token types", value: "input/output" }],
     effectiveDate: "2021-01-01T00:00:00Z",
   },
 ];
@@ -138,12 +140,98 @@ export async function listInstallations(): Promise<string[]> {
 export async function provisionResource(
   installationId: string,
   request: ProvisionResourceRequest,
-  opts?: { status?: ResourceStatusType },
+  opts?: {
+    status?: ResourceStatusType;
+    installer?: OidcClaims;
+    idempotencyKey?: string | null;
+  },
 ): Promise<ProvisionResourceResponse> {
+  if (request.productId !== APPWRITE_PRODUCT_ID) {
+    throw new ProvisionRejectedError(400, {
+      code: "validation_error",
+      message: `Unknown product: ${request.productId}`,
+      user: {
+        message: `This integration only supports product "${APPWRITE_PRODUCT_ID}". Match the Product URL slug in the Integrations Console.`,
+      },
+    });
+  }
+
   const billingPlan = billingPlanMap.get(request.billingPlanId);
   if (!billingPlan) {
-    throw new Error(`Unknown billing plan ${request.billingPlanId}`);
+    throw new ProvisionRejectedError(400, {
+      code: "validation_error",
+      message: `Unknown billing plan: ${request.billingPlanId}`,
+      user: { message: "Select the Appwrite (BYOK) plan." },
+    });
   }
+
+  const parsed = parseAppwriteMetadata(
+    request.metadata as Record<string, unknown>,
+  );
+  if (!parsed.success) {
+    throw new ProvisionRejectedError(400, {
+      code: "validation_error",
+      message: "Invalid Appwrite configuration",
+      fields: parsed.fieldErrors,
+    });
+  }
+
+  const idempKey = opts?.idempotencyKey?.trim();
+  if (idempKey) {
+    const existingId = await kv.get<string>(
+      `idemp:${installationId}:${idempKey}`,
+    );
+    if (existingId) {
+      const existing = await getResource(installationId, existingId);
+      if (existing) {
+        const again = parseAppwriteMetadata(
+          existing.metadata as Record<string, unknown>,
+        );
+        if (again.success) {
+          return {
+            ...existing,
+            secrets: appwriteSecretsFromMetadata(again.data),
+          };
+        }
+      }
+    }
+  }
+
+  if (opts?.installer) {
+    const identity = await resolveInstallerIdentity(
+      opts.installer,
+      installationId,
+    );
+    if (!identity) {
+      throw new ProvisionRejectedError(400, {
+        code: "validation_error",
+        message: "Could not resolve installer email",
+        user: {
+          message:
+            "Verified email was not available. Ask Vercel to enable the user_email claim on Marketplace JWTs for this integration, or ensure member lookup works for your installation token.",
+        },
+      });
+    }
+
+    try {
+      await ensureAppwriteAdminUser(
+        parsed.data,
+        identity.email,
+        identity.name,
+        APPWRITE_ADMIN_LABEL,
+      );
+    } catch (e) {
+      const msg = formatAppwriteError(e);
+      throw new ProvisionRejectedError(400, {
+        code: "validation_error",
+        message: msg,
+        user: {
+          message: `Appwrite rejected the request. Check endpoint, project ID, API key scopes (users.read, users.write), and that the API key is valid. Details: ${msg}`,
+        },
+      });
+    }
+  }
+
   const resource = {
     id: nanoid(),
     status: opts?.status ?? "ready",
@@ -160,24 +248,15 @@ export async function provisionResource(
   await kv.lpush(`${installationId}:resources`, resource.id);
   await updateInstallation(installationId, request.billingPlanId);
 
-  const currentDate = new Date().toISOString();
+  if (idempKey) {
+    await kv.set(`idemp:${installationId}:${idempKey}`, resource.id, {
+      ex: IDEMPOTENCY_TTL_SEC,
+    });
+  }
 
   return {
     ...resource,
-
-    secrets: [
-      {
-        name: "TOP_SECRET",
-        value: `birds aren't real (${currentDate})`,
-        environmentOverrides:
-          resource.productId === "with-env-override"
-            ? {
-                production: `birds ARE real (${currentDate})`,
-                preview: `birds ARE real (${currentDate})`,
-              }
-            : undefined,
-      },
-    ],
+    secrets: appwriteSecretsFromMetadata(parsed.data),
   };
 }
 
@@ -192,11 +271,19 @@ export async function updateResource(
     throw new Error(`Cannot find resource ${resourceId}`);
   }
 
-  const { billingPlanId, ...updatedFields } = request;
+  const { billingPlanId, metadata: patchMetadata, ...updatedFields } = request;
 
   const nextResource = {
     ...resource,
     ...updatedFields,
+    ...(patchMetadata !== undefined
+      ? {
+          metadata: {
+            ...(resource.metadata as object),
+            ...(patchMetadata as object),
+          },
+        }
+      : {}),
     billingPlan: billingPlanId
       ? (billingPlanMap.get(billingPlanId) ?? resource.billingPlan)
       : resource.billingPlan,
@@ -206,6 +293,23 @@ export async function updateResource(
     `${installationId}:resource:${resourceId}`,
     serializeResource(nextResource),
   );
+
+  if (nextResource.productId === APPWRITE_PRODUCT_ID) {
+    const meta = parseAppwriteMetadata(
+      nextResource.metadata as Record<string, unknown>,
+    );
+    if (meta.success) {
+      try {
+        await putInstallationResourceSecrets(
+          installationId,
+          resourceId,
+          appwriteSecretsFromMetadata(meta.data),
+        );
+      } catch (e) {
+        console.error("putInstallationResourceSecrets after update failed", e);
+      }
+    }
+  }
 
   return nextResource;
 }
@@ -336,28 +440,30 @@ export async function importResourceToVercel(
     throw new Error(`Cannot find resource ${resourceId}`);
   }
 
-  const response = await importResourceToVercelApi(
-    installationId,
-    resource.id,
-    {
-      name: resource.name,
-      productId: resource.productId,
-      status: resource.status,
-      metadata: resource.metadata,
-      billingPlan: resource.billingPlan,
-      notification: resource.notification,
-      secrets: [
-        {
-          name: "TOP_SECRET",
-          value: `birds aren't real (${new Date().toISOString()})`,
-        },
-        {
-          name: "TOP_SECRET_CLONED",
-          value: `birds aren't real (${new Date().toISOString()})`,
-        },
-      ],
-    },
-  );
+  const secrets =
+    resource.productId === APPWRITE_PRODUCT_ID
+      ? (() => {
+          const m = parseAppwriteMetadata(
+            resource.metadata as Record<string, unknown>,
+          );
+          return m.success ? appwriteSecretsFromMetadata(m.data) : [];
+        })()
+      : [
+          {
+            name: "TOP_SECRET",
+            value: `legacy-import (${new Date().toISOString()})`,
+          },
+        ];
+
+  await importResourceToVercelApi(installationId, resource.id, {
+    name: resource.name,
+    productId: resource.productId,
+    status: resource.status,
+    metadata: resource.metadata,
+    billingPlan: resource.billingPlan,
+    notification: resource.notification,
+    secrets,
+  });
 }
 
 export async function provisionPurchase(
@@ -489,30 +595,18 @@ export async function getAllBillingPlans(
 }
 
 export async function getInstallationBillingPlans(
-  installationId: string,
+  _installationId: string,
   _experimental_metadata?: Record<string, unknown>,
 ): Promise<GetBillingPlansResponse> {
-  const resources = await listResources(installationId);
-  return {
-    plans:
-      resources.resources.length > 2
-        ? billingPlans.filter((p) => p.paymentMethodRequired)
-        : billingPlans,
-  };
+  return { plans: billingPlans };
 }
 
 export async function getProductBillingPlans(
   _productId: string,
-  installationId: string,
+  _installationId: string,
   _experimental_metadata?: Record<string, unknown>,
 ): Promise<GetBillingPlansResponse> {
-  const resources = await listResources(installationId);
-  return {
-    plans:
-      resources.resources.length > 2
-        ? billingPlans.filter((p) => p.paymentMethodRequired)
-        : billingPlans,
-  };
+  return { plans: billingPlans };
 }
 
 export async function getResourceBillingPlans(

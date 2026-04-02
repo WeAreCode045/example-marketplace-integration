@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "required": [
+    "appwriteEndpoint",
+    "appwriteProjectId",
+    "appwriteDatabaseId",
+    "appwriteApiKey"
+  ],
+  "properties": {
+    "appwriteEndpoint": {
+      "type": "string",
+      "description": "Appwrite API endpoint URL, including the /v1 path.",
+      "minLength": 8,
+      "ui:control": "input",
+      "ui:label": "Appwrite endpoint",
+      "ui:placeholder": "https://cloud.appwrite.io/v1"
+    },
+    "appwriteProjectId": {
+      "type": "string",
+      "description": "Project ID from the Appwrite console.",
+      "minLength": 1,
+      "ui:control": "input",
+      "ui:label": "Project ID"
+    },
+    "appwriteDatabaseId": {
+      "type": "string",
+      "description": "Database ID for the Databases API.",
+      "minLength": 1,
+      "ui:control": "input",
+      "ui:label": "Database ID"
+    },
+    "appwriteApiKey": {
+      "type": "string",
+      "description": "Server API key with permission to list and manage users.",
+      "minLength": 1,
+      "ui:control": "input",
+      "ui:label": "API key"
+    }
+  }
+}
